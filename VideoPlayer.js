@@ -3,25 +3,22 @@ import Video from 'react-native-video';
 import {
   TouchableWithoutFeedback,
   TouchableHighlight,
-  ImageBackground,
   PanResponder,
   StyleSheet,
   Animated,
-  SafeAreaView,
   Easing,
   Image,
   View,
   Text,
-  TouchableOpacity,
 } from 'react-native';
 import padStart from 'lodash/padStart';
-import Entypo from 'react-native-vector-icons/Entypo';
 import PropTypes from 'prop-types';
+import {widthPercentageToDP as wp} from 'react-native-responsive-screen';
+import LinearGradient from 'react-native-linear-gradient';
 
 export default class VideoPlayer extends Component {
   constructor(props) {
     super(props);
-
     /**
      * All of our values that are updated by the
      * methods and listeners in this class
@@ -29,7 +26,7 @@ export default class VideoPlayer extends Component {
     this.state = {
       // Video
       resizeMode: this.props.resizeMode,
-      paused: this.props.paused,
+      paused: !this.props.startPlaying,
       muted: this.props.muted,
       volume: this.props.volume,
       rate: this.props.rate,
@@ -97,8 +94,10 @@ export default class VideoPlayer extends Component {
     this.methods = {
       toggleFullscreen: this._toggleFullscreen.bind(this),
       togglePlayPause: this._togglePlayPause.bind(this),
+      rewindForward: this._rewindForward.bind(this),
       toggleControls: this._toggleControls.bind(this),
       toggleTimer: this._toggleTimer.bind(this),
+      reconnectAfterError: this.reconnectAfterError.bind(this),
     };
 
     /**
@@ -250,6 +249,7 @@ export default class VideoPlayer extends Component {
    * @param {object} data The video meta data
    */
   _onProgress(data = {}) {
+    //{currentPosition, bufferedDuration, seekableDuration, currentPlaybackTime}
     let state = this.state;
     if (!state.scrubbing) {
       state.currentTime = data.currentTime;
@@ -352,12 +352,12 @@ export default class VideoPlayer extends Component {
    |
    */
 
-  reconnectAfterError = () => {
-    this.setState(prevState => ({
-      isError: false,
-      isPaused: !prevState.isPaused,
-    }));
-  };
+  reconnectAfterError() {
+    this.setState({
+      error: false,
+      paused: false,
+    });
+  }
 
   /**
    * Set a timeout when the controls are shown
@@ -544,13 +544,20 @@ export default class VideoPlayer extends Component {
     state.paused = !state.paused;
 
     if (state.paused) {
-      typeof this.events.onPlaybackStalled === 'function' && this.events.onPlaybackStalled();
+      typeof this.events.onPlaybackStalled === 'function' &&
+        this.events.onPlaybackStalled();
     } else {
-      typeof this.events.onPlaybackResume === 'function' && this.events.onPlaybackResume();
+      typeof this.events.onPlaybackResume === 'function' &&
+        this.events.onPlaybackResume();
     }
 
     this.setState(state);
   }
+
+  /**
+   * Rewind forward
+   */
+  _rewindForward() {}
 
   /**
    * Toggle between showing time remaining or
@@ -776,7 +783,10 @@ export default class VideoPlayer extends Component {
    * we have to handle possible props changes to state changes
    */
   UNSAFE_componentWillReceiveProps(nextProps) {
-    if (this.state.paused !== nextProps.paused) {
+    if (
+      nextProps.paused !== undefined &&
+      this.state.paused !== nextProps.paused
+    ) {
       this.setState({
         paused: nextProps.paused,
       });
@@ -948,7 +958,15 @@ export default class VideoPlayer extends Component {
    */
 
   renderBlank() {
-    return <View style={styles.container} />;
+    return (
+      <View
+        style={[
+          styles.player.container,
+          this.styles.containerStyle,
+          styles.blank.container,
+        ]}
+      />
+    );
   }
 
   /**
@@ -995,27 +1013,26 @@ export default class VideoPlayer extends Component {
       : this.renderFullscreen();
 
     return (
-      <Animated.View
-        style={[
-          styles.controls.top,
-          {
-            opacity: this.animations.topControl.opacity,
-            marginTop: this.animations.topControl.marginTop,
-          },
-        ]}>
-        <ImageBackground
-          source={require('./assets/img/top-vignette.png')}
-          style={[styles.controls.column]}
-          imageStyle={[styles.controls.vignette]}>
-          <SafeAreaView style={styles.controls.topControlGroup}>
+      <View style={styles.controls.top}>
+        <Animated.View
+          style={[
+            styles.controls.topAnimatedContainer,
+            {
+              opacity: this.animations.topControl.opacity,
+              marginTop: this.animations.topControl.marginTop,
+            },
+          ]}>
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0)']}
+            style={styles.controls.topControlGroup}>
             {backControl}
             <View style={styles.controls.pullRight}>
               {volumeControl}
               {fullscreenControl}
             </View>
-          </SafeAreaView>
-        </ImageBackground>
-      </Animated.View>
+          </LinearGradient>
+        </Animated.View>
+      </View>
     );
   }
 
@@ -1026,10 +1043,10 @@ export default class VideoPlayer extends Component {
     return this.renderControl(
       <Image
         source={require('./assets/img/back.png')}
-        style={styles.controls.back}
+        style={styles.controls.icon}
       />,
       this.events.onBack,
-      styles.controls.back,
+      null,
     );
   }
 
@@ -1066,7 +1083,7 @@ export default class VideoPlayer extends Component {
         ? require('./assets/img/shrink.png')
         : require('./assets/img/expand.png');
     return this.renderControl(
-      <Image source={source} />,
+      <Image source={source} style={styles.controls.icon} />,
       this.methods.toggleFullscreen,
       styles.controls.fullscreen,
     );
@@ -1087,27 +1104,25 @@ export default class VideoPlayer extends Component {
       : this.renderPlayPause();
 
     return (
-      <Animated.View
-        style={[
-          styles.controls.bottom,
-          {
-            opacity: this.animations.bottomControl.opacity,
-            marginBottom: this.animations.bottomControl.marginBottom,
-          },
-        ]}>
-        <ImageBackground
-          source={require('./assets/img/bottom-vignette.png')}
-          style={[styles.controls.column]}
-          imageStyle={[styles.controls.vignette]}>
+      <View style={styles.controls.bottom}>
+        <Animated.View
+          style={[
+            styles.controls.bottomAnimatedContainer,
+            {
+              opacity: this.animations.bottomControl.opacity,
+              marginBottom: this.animations.bottomControl.marginBottom,
+            },
+          ]}>
           {seekbarControl}
-          <SafeAreaView
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.6)']}
             style={[styles.controls.row, styles.controls.bottomControlGroup]}>
             {playPauseControl}
             {this.renderTitle()}
             {timerControl}
-          </SafeAreaView>
-        </ImageBackground>
-      </Animated.View>
+          </LinearGradient>
+        </Animated.View>
+      </View>
     );
   }
 
@@ -1158,12 +1173,26 @@ export default class VideoPlayer extends Component {
   renderPlayPause() {
     let source =
       this.state.paused === true
-        ? require('./assets/img/play.png')
-        : require('./assets/img/pause.png');
+        ? require('./assets/img/play3x.png')
+        : require('./assets/img/pause3x.png');
     return this.renderControl(
-      <Image source={source} />,
+      <Image source={source} style={styles.controls.icon} />,
       this.methods.togglePlayPause,
       styles.controls.playPause,
+    );
+  }
+
+  /**
+   * Render the rewind forward button and show the respective icon
+   */
+  renderRewindForward() {
+    return this.renderControl(
+      <Image
+        source={require('./assets/img/forward3x.png')}
+        style={styles.controls.icon}
+      />,
+      this.methods.rewindForward,
+      styles.controls.rewindForward,
     );
   }
 
@@ -1205,7 +1234,7 @@ export default class VideoPlayer extends Component {
       return (
         <View style={styles.loader.container}>
           <Animated.Image
-            source={require('./assets/img/loader-icon.png')}
+            source={require('./assets/img/loader-icon3x.png')}
             style={[
               styles.loader.icon,
               {
@@ -1229,26 +1258,62 @@ export default class VideoPlayer extends Component {
   renderError() {
     if (this.state.error) {
       return (
-        <View style={styles.error.container}>
-          <Text style={styles.error.errorText}>Failed to play video.</Text>
-          <TouchableOpacity
-            onPress={() => {
-              this.reconnectAfterError();
-            }}>
-            <Entypo name="cycle" color="white" size={50} />
-          </TouchableOpacity>
+        <View
+          style={[
+            styles.player.container,
+            this.styles.containerStyle,
+            styles.error.container,
+          ]}>
+          <Text style={styles.error.text}>Failed to play video.</Text>
+          {this.renderControl(
+            <Image
+              source={require('./assets/img/error-icon3x.png')}
+              style={styles.error.icon}
+            />,
+            this.methods.reconnectAfterError,
+            null,
+          )}
+          <Text style={styles.error.text}>Click to retry.</Text>
         </View>
       );
     }
     return null;
   }
 
-  /**
-   * Provide all of our options and render the whole component.
-   */
-  render() {
-    const {resizeMode, volume, paused, muted, rate, fullscreen} = this.state;
-    const {ready, uri, headers, nativeControls, disableFocus} = this.props;
+  renderPoster() {
+    const {thumbUri, headers} = this.props;
+    const {paused, error} = this.state;
+    if (!paused || error) {
+      return null;
+    }
+    return (
+      <Image
+        style={styles.poster.image}
+        source={{
+          uri: thumbUri,
+          headers: headers,
+        }}
+      />
+    );
+  }
+
+  renderVideo() {
+    const {
+      resizeMode,
+      volume,
+      error,
+      paused,
+      muted,
+      rate,
+      fullscreen,
+    } = this.state;
+    const {
+      uri,
+      headers,
+      nativeControls,
+      disableFocus,
+      disposeOnPause,
+    } = this.props;
     const {
       onLoadStart,
       onProgress,
@@ -1258,46 +1323,64 @@ export default class VideoPlayer extends Component {
       onSeek,
       onPlaybackStalled,
       onPlaybackResume,
-      onScreenTouch,
       onFullscreenPlayerDidPresent,
       onFullscreenPlayerDidDismiss,
     } = this.events;
-    if (!ready) {
+    if (error || (paused && disposeOnPause)) {
+      return null;
+    }
+    return (
+      <Video
+        ref={videoPlayer => (this.player.ref = videoPlayer)}
+        resizeMode={resizeMode}
+        controls={nativeControls}
+        disableFocus={disableFocus}
+        volume={volume}
+        paused={paused}
+        muted={muted}
+        rate={rate}
+        fullscreen={fullscreen}
+        fullscreenOrientation={'landscape'}
+        onLoadStart={onLoadStart}
+        onProgress={onProgress}
+        onError={onError}
+        onLoad={onLoad}
+        onEnd={onEnd}
+        onSeek={onSeek}
+        onPlaybackResume={onPlaybackResume}
+        onPlaybackStalled={onPlaybackStalled}
+        style={[styles.player.video, this.styles.videoStyle]}
+        onFullscreenPlayerDidPresent={onFullscreenPlayerDidPresent}
+        onFullscreenPlayerDidDismiss={onFullscreenPlayerDidDismiss}
+        source={{
+          uri,
+          headers,
+        }}
+        bufferConfig={{
+          minBufferMs: 3000,
+          maxBufferMs: 5000,
+          bufferForPlaybackMs: 3000,
+          bufferForPlaybackAfterRebufferMs: 3000,
+        }}
+      />
+    );
+  }
+
+  /**
+   * Provide all of our options and render the whole component.
+   */
+  render() {
+    if (!this.props.uri) {
       return this.renderBlank();
     }
     return (
       <TouchableWithoutFeedback
-        onPress={onScreenTouch}
+        onPress={this.events.onScreenTouch}
         style={[styles.player.container, this.styles.containerStyle]}>
         <View style={[styles.player.container, this.styles.containerStyle]}>
-          <Video
-            ref={videoPlayer => (this.player.ref = videoPlayer)}
-            resizeMode={resizeMode}
-            controls={nativeControls}
-            disableFocus={disableFocus}
-            volume={volume}
-            paused={paused}
-            muted={muted}
-            rate={rate}
-            fullscreen={fullscreen}
-            fullscreenOrientation={'landscape'}
-            onLoadStart={onLoadStart}
-            onProgress={onProgress}
-            onError={onError}
-            onLoad={onLoad}
-            onEnd={onEnd}
-            onSeek={onSeek}
-            onPlaybackResume={onPlaybackResume}
-            onPlaybackStalled={onPlaybackStalled}
-            style={[styles.player.video, this.styles.videoStyle]}
-            onFullscreenPlayerDidPresent={onFullscreenPlayerDidPresent}
-            onFullscreenPlayerDidDismiss={onFullscreenPlayerDidDismiss}
-            source={{
-              uri,
-              headers,
-            }}
-          />
+          {this.renderVideo()}
           {this.renderError()}
+          {this.renderPoster()}
           {this.renderLoader()}
           {this.renderTopControls()}
           {this.renderBottomControls()}
@@ -1316,7 +1399,6 @@ VideoPlayer.defaultProps = {
   resizeMode: 'contain',
   fullscreen: false,
   showOnStart: true,
-  paused: false,
   repeat: false,
   muted: false,
   volume: 1,
@@ -1328,14 +1410,13 @@ VideoPlayer.defaultProps = {
   disableBack: true,
   disableVolume: true,
   disableFocus: true,
+  disposeOnPause: false,
   alwaysShowBottomControls: false,
+  startPlaying: true,
 };
 
 VideoPlayer.propTypes = {
-  loading: PropTypes.bool.isRequired,
-  ready: PropTypes.bool.isRequired,
   fullscreen: PropTypes.bool,
-  paused: PropTypes.bool,
   muted: PropTypes.bool,
   uri: PropTypes.string.isRequired,
   thumbUri: PropTypes.string,
@@ -1353,6 +1434,8 @@ VideoPlayer.propTypes = {
   onFullscreenPlayerDidDismiss: PropTypes.func,
   onControlsVisibilityChanged: PropTypes.func,
   alwaysShowBottomControls: PropTypes.bool,
+  disposeOnPause: PropTypes.bool,
+  startPlaying: PropTypes.bool,
 };
 
 const styles = {
@@ -1373,23 +1456,38 @@ const styles = {
       top: 0,
     },
   }),
+  poster: StyleSheet.create({
+    image: {
+      height: '100%',
+      position: 'absolute',
+      resizeMode: 'contain',
+      width: '100%',
+    },
+  }),
+  blank: StyleSheet.create({
+    container: {
+      backgroundColor: 'black',
+    },
+  }),
   error: StyleSheet.create({
     container: {
       alignItems: 'center',
-      backgroundColor: 'rgba( 0, 0, 0, 0.5)',
-      bottom: 0,
+      height: '100%',
       justifyContent: 'center',
-      left: 0,
       position: 'absolute',
-      right: 0,
-      top: 0,
+      width: '100%',
+      zIndex: 1,
     },
     icon: {
-      marginBottom: 16,
+      aspectRatio: 1,
+      height: undefined,
+      resizeMode: 'contain',
+      width: '10%',
     },
     text: {
       backgroundColor: 'transparent',
-      color: '#f27474',
+      color: 'white',
+      fontSize: wp(3),
     },
   }),
   loader: StyleSheet.create({
@@ -1402,20 +1500,32 @@ const styles = {
       right: 0,
       top: 0,
     },
+    icon: {
+      aspectRatio: 1,
+      height: undefined,
+      resizeMode: 'contain',
+      width: wp(10),
+    },
   }),
   controls: StyleSheet.create({
     bottom: {
       alignItems: 'stretch',
-      flex: 2,
+      flex: 1,
+      justifyContent: 'flex-end',
+      zIndex: 0,
+    },
+    bottomAnimatedContainer: {
+      alignItems: 'stretch',
+      flex: 1,
       justifyContent: 'flex-end',
     },
     bottomControlGroup: {
       alignItems: 'center',
       alignSelf: 'stretch',
+      height: '25%',
       justifyContent: 'space-between',
-      marginBottom: 0,
-      marginLeft: 12,
-      marginRight: 12,
+      paddingLeft: 12,
+      paddingRight: 12,
     },
     column: {
       alignItems: 'center',
@@ -1424,21 +1534,29 @@ const styles = {
       justifyContent: 'space-between',
       width: null,
     },
-    control: {
-      padding: 16,
-    },
+    control: {},
     fullscreen: {
-      flexDirection: 'row',
+      position: 'relative',
+      zIndex: 0,
+    },
+    icon: {
+      aspectRatio: 1,
+      height: '70%',
+      resizeMode: 'contain',
+      width: null,
     },
     playPause: {
       position: 'relative',
-      width: 80,
       zIndex: 0,
     },
     pullRight: {
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'center',
+    },
+    rewindForward: {
+      position: 'relative',
+      zIndex: 0,
     },
     row: {
       alignItems: 'center',
@@ -1450,17 +1568,16 @@ const styles = {
     text: {
       backgroundColor: 'transparent',
       color: '#FFF',
-      fontSize: 14,
+      fontSize: wp(2.5),
       textAlign: 'center',
     },
-    timer: {
-      width: 80,
-    },
     timerText: {
-      backgroundColor: 'transparent',
       color: '#FFF',
-      fontSize: 11,
-      textAlign: 'right',
+      fontSize: wp(2.5),
+      height: '100%',
+      textAlign: 'center',
+      textAlignVertical: 'center',
+      width: '100%',
     },
     title: {
       alignItems: 'center',
@@ -1475,15 +1592,21 @@ const styles = {
       alignItems: 'stretch',
       flex: 1,
       justifyContent: 'flex-start',
+      zIndex: 0,
+    },
+    topAnimatedContainer: {
+      alignItems: 'stretch',
+      flex: 1,
+      justifyContent: 'flex-start',
     },
     topControlGroup: {
       alignItems: 'center',
       alignSelf: 'stretch',
       flexDirection: 'row',
+      height: '25%',
       justifyContent: 'space-between',
-      margin: 12,
-      marginBottom: 18,
-      width: null,
+      paddingLeft: 12,
+      paddingRight: 12,
     },
     vignette: {
       resizeMode: 'stretch',
@@ -1498,8 +1621,8 @@ const styles = {
       flexDirection: 'row',
       height: 1,
       justifyContent: 'flex-start',
-      marginLeft: 20,
-      marginRight: 20,
+      marginLeft: 40,
+      marginRight: 40,
       width: 150,
     },
     fill: {
